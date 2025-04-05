@@ -1,7 +1,5 @@
 # Vector Clock Simulator
 
-a visual tool to show
-
 ![Screenshot 2025-04-05 232710](https://github.com/user-attachments/assets/80f3f470-9eb1-4c91-a77b-a6075da81b74)
 
 # 🕒 Vector Clock Simulation
