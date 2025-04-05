@@ -1,4 +1,3 @@
-# node.py
 import rpyc
 from rpyc.utils.server import ThreadedServer # Or ForkingServer
 import sys
