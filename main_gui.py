@@ -1,9 +1,9 @@
-#  ____                      _      _         _  __        _            _      _
-# | __ )   ___   _   _  ____(_)  __| |       | |/ /  ___  | |__    ___ | |__  (_)
-# |  _ \  / _ \ | | | ||_  /| | / _` |       | ' /  / _ \ | '_ \  / __|| '_ \ | |
-# | |_) || (_) || |_| | / / | || (_| |       | . \ | (_) || |_) || (__ | | | || |
+#  ____                 _      _        _ __        _            _      _
+# | __ )   ___   _  _  ____(_)  __| |      | |/ /  ___  | |__    ___ | |__  (_)
+# |  _ \  / _ \ | | | ||  _/| | / _` |      | ' /  / _ \ | '_ \  / __|| '_ \ | |
+# | |_) || (_) || |_| | / / | || (_| |      | . \ | (_) || |_) || (__ | | | || |
 # |____/  \___/  \__,_|/___||_| \__,_| _____ |_|\_\ \___/ |_.__/  \___||_| |_||_|
-#                                     |_____|
+#                                    |_____|
 
 import customtkinter as ctk
 import tkinter as tk
@@ -58,6 +58,15 @@ class VectorClockApp(ctk.CTk):
         self.checkbox_show_console.pack(side=tk.LEFT, padx=10)
         # --- End Checkbox ---
 
+        # Help Button
+        self.button_help = ctk.CTkButton(
+            self.config_frame,
+            text="?",
+            width=30, # Make it small
+            command=self.show_vector_clock_help
+        )
+        self.button_help.pack(side=tk.LEFT, padx=5)
+
         # Add Exit button last
         self.button_exit = ctk.CTkButton(self.config_frame, text="Exit", width=70, command=self.shutdown_app)
         self.button_exit.pack(side=tk.LEFT, padx=5) # Place exit button
@@ -79,6 +88,36 @@ class VectorClockApp(ctk.CTk):
     def show_error(self, title, message):
         # Ensure messagebox runs in the main thread
         self.after(0, lambda: messagebox.showerror(title, message))
+
+    # Method to display help about Vector Clocks
+    def show_vector_clock_help(self):
+        """Displays an informational pop-up about vector clocks."""
+        help_title = "About Vector Clocks"
+        help_text = """
+Vector Clocks are data structures used in distributed systems to determine the partial ordering of events and detect potential causality violations.
+
+History:
+- Concept builds upon Lamport timestamps (which provide total ordering but not causal history).
+- Independently developed by Colin Fidge and Friedemann Mattern in 1988.
+- Designed to capture the causal dependencies between events in a distributed system without requiring a central clock.
+
+Usage:
+- Each process in the system maintains a vector (array) of logical clocks, with one entry per process.
+- On a local event: Increment the clock entry for the current process.
+- On sending a message: Increment own clock entry, then attach the entire vector clock to the message.
+- On receiving a message:
+    1. Update own vector clock by taking the element-wise maximum of the local clock and the received clock.
+    2. Increment own clock entry.
+- Comparing Clocks:
+    - VC1 happens before VC2 if all elements of VC1 are <= the corresponding elements of VC2, and at least one is strictly <.
+    - VC1 and VC2 are concurrent if neither happens before the other.
+- Used in:
+    - Distributed databases (e.g., Riak, DynamoDB) for conflict detection and resolution (MVCC).
+    - Causal message ordering.
+    - Distributed debugging and monitoring.
+    - Optimistic replication systems.
+"""
+        messagebox.showinfo(help_title, help_text)
 
     def start_simulation(self):
         """Starts the node processes and connects to them."""
@@ -111,9 +150,9 @@ class VectorClockApp(ctk.CTk):
             cmd = [
                 python_executable,
                 node_script,
-                str(i),           # node_id
+                str(i),              # node_id
                 str(self.n_processes), # total_nodes
-                str(self.base_port)   # base_port
+                str(self.base_port)  # base_port
             ]
             try:
                 # Determine creation flags based on checkbox and OS
@@ -145,7 +184,7 @@ class VectorClockApp(ctk.CTk):
                 # potentially detach the process group, though it doesn't guarantee
                 # a visible terminal window. It's more about process management.
                 # if os.name != 'nt':
-                #    popen_kwargs['start_new_session'] = True
+                #     popen_kwargs['start_new_session'] = True
 
                 print(f"Starting process {i+1} with command: {' '.join(cmd)}")
                 proc = subprocess.Popen(cmd, **popen_kwargs) # Pass flags/args
@@ -445,31 +484,31 @@ class VectorClockApp(ctk.CTk):
         # Close RPyC connections
         for i, conn in enumerate(self.connections):
             if conn and not conn.closed:
-                 try:
+                try:
                     # Optionally try to tell node to shut down gracefully
                     # conn.root.shutdown() # Requires implementing shutdown in NodeService
                     conn.close()
                     print(f"GUI: Closed connection to P{i+1}")
-                 except Exception as e:
+                except Exception as e:
                     print(f"GUI: Error closing connection to P{i+1}: {e}")
         self.connections = []
 
         # Terminate subprocesses
         for i, proc in enumerate(self.processes):
              if proc and proc.poll() is None: # Check if process is still running
-                 print(f"GUI: Terminating process P{i+1} (PID: {proc.pid})...")
-                 try:
+                print(f"GUI: Terminating process P{i+1} (PID: {proc.pid})...")
+                try:
                     proc.terminate() # Send SIGTERM (more graceful)
                     proc.wait(timeout=1.5) # Wait a bit longer
                     print(f"GUI: Terminated process P{i+1} successfully.")
-                 except subprocess.TimeoutExpired:
+                except subprocess.TimeoutExpired:
                     print(f"GUI: Process P{i+1} (PID: {proc.pid}) did not terminate quickly, killing.")
                     proc.kill() # Force kill (SIGKILL)
                     try:
                         proc.wait(timeout=0.5) # Short wait after kill
                     except subprocess.TimeoutExpired:
                          print(f"GUI: Warning - Process P{i+1} (PID: {proc.pid}) did not die immediately after kill.")
-                 except Exception as e:
+                except Exception as e:
                      print(f"GUI: Error terminating/killing process P{i+1} (PID: {proc.pid}): {e}")
         self.processes = []
         print("GUI: Cleanup finished.")
