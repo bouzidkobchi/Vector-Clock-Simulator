@@ -20,30 +20,47 @@ class VectorClockApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Vector Clock Simulation (RPyC)")
-        self.geometry("850x700") # Increased size slightly
+        self.geometry("900x700") # Adjusted size slightly for checkbox
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
         self.processes = [] # Will store subprocess handles
         self.connections = [] # Will store RPyC client connections
         self.n_processes = 0
-        self.base_port = 18861 # Starting port number (choose one unlikely to be in use)
+        self.base_port = 18861 # Starting port number
         self.process_tabs = {}
         self.current_process_index = 0
+
+        # Variable to hold the checkbox state (0=unchecked, 1=checked)
+        self.show_console_var = tk.IntVar(value=0) # Default to not showing console
 
         # --- Top Frame ---
         self.config_frame = ctk.CTkFrame(self)
         self.config_frame.pack(pady=10, padx=10, fill="x")
-        # ... (Label, Entry for N, Start, Exit buttons - same as before) ...
-        self.label_n = ctk.CTkLabel(self.config_frame, text="Provide the number of processes:")
-        self.label_n.pack(side=tk.LEFT, padx=5)
+
+        self.label_n = ctk.CTkLabel(self.config_frame, text="Processes (N):")
+        self.label_n.pack(side=tk.LEFT, padx=(5, 2))
         self.entry_n = ctk.CTkEntry(self.config_frame, width=50)
-        self.entry_n.pack(side=tk.LEFT, padx=5)
+        self.entry_n.pack(side=tk.LEFT, padx=(0, 5))
         self.entry_n.insert(0, "3")
-        self.button_start = ctk.CTkButton(self.config_frame, text="Start", command=self.start_simulation)
+
+        self.button_start = ctk.CTkButton(self.config_frame, text="Start", width=70, command=self.start_simulation)
         self.button_start.pack(side=tk.LEFT, padx=5)
-        self.button_exit = ctk.CTkButton(self.config_frame, text="Exit", command=self.shutdown_app) # Use shutdown_app
-        self.button_exit.pack(side=tk.LEFT, padx=5)
+
+        # --- Add the Checkbox Here ---
+        self.checkbox_show_console = ctk.CTkCheckBox(
+            self.config_frame,
+            text="Show Node Consoles",
+            variable=self.show_console_var,
+            onvalue=1,
+            offvalue=0
+        )
+        self.checkbox_show_console.pack(side=tk.LEFT, padx=10)
+        # --- End Checkbox ---
+
+        # Add Exit button last
+        self.button_exit = ctk.CTkButton(self.config_frame, text="Exit", width=70, command=self.shutdown_app)
+        self.button_exit.pack(side=tk.LEFT, padx=5) # Place exit button
 
         # --- Tab View ---
         self.tab_view = None
@@ -86,6 +103,9 @@ class VectorClockApp(ctk.CTk):
              self.update_status("Error: node.py not found.")
              return
 
+        # Check the state of the checkbox
+        show_console_windows = self.show_console_var.get() == 1
+
         for i in range(self.n_processes):
             port = self.base_port + i
             cmd = [
@@ -96,15 +116,41 @@ class VectorClockApp(ctk.CTk):
                 str(self.base_port)   # base_port
             ]
             try:
-                print(f"Starting process {i+1} with command: {' '.join(cmd)}")
-                # Use CREATE_NEW_CONSOLE on Windows to see node output easily
-                # Use start_new_session=True on Linux/macOS if needed
-                creationflags = 0
-                if os.name == 'nt':
-                    creationflags = subprocess.CREATE_NEW_CONSOLE
+                # Determine creation flags based on checkbox and OS
+                creationflags = 0 # Default: no special flags (no new window)
+                popen_kwargs = {} # Store arguments for Popen
 
-                proc = subprocess.Popen(cmd, creationflags=creationflags) #, start_new_session=True)
+                if os.name == 'nt': # Windows specific flag
+                    if show_console_windows:
+                        print(f"GUI: Starting P{i+1} with CREATE_NEW_CONSOLE.")
+                        creationflags = subprocess.CREATE_NEW_CONSOLE
+                    else:
+                        # To truly hide the console window on Windows when not needed,
+                        # use CREATE_NO_WINDOW. This prevents even a flash.
+                        print(f"GUI: Starting P{i+1} with CREATE_NO_WINDOW.")
+                        creationflags = subprocess.CREATE_NO_WINDOW
+                    popen_kwargs['creationflags'] = creationflags
+                elif show_console_windows:
+                    # On Linux/macOS, there isn't a direct equivalent to CREATE_NEW_CONSOLE
+                    # that works reliably across all terminal emulators.
+                    # Running without special flags usually means output goes to the
+                    # terminal that launched the main GUI script.
+                    # You *could* try launching with 'xterm -e' or similar, but
+                    # it's complex and platform-dependent.
+                    print(f"GUI: Starting P{i+1} (Show Console checked, but non-Windows OS - no separate window created by default).")
+                else:
+                     print(f"GUI: Starting P{i+1} (no console window requested or non-Windows OS).")
+
+                # Add start_new_session=True for Linux/macOS if you want to
+                # potentially detach the process group, though it doesn't guarantee
+                # a visible terminal window. It's more about process management.
+                # if os.name != 'nt':
+                #    popen_kwargs['start_new_session'] = True
+
+                print(f"Starting process {i+1} with command: {' '.join(cmd)}")
+                proc = subprocess.Popen(cmd, **popen_kwargs) # Pass flags/args
                 self.processes.append(proc)
+
             except Exception as e:
                 self.show_error("Process Error", f"Failed to start node P{i+1}: {e}")
                 self.cleanup_processes() # Stop any already started
@@ -112,9 +158,13 @@ class VectorClockApp(ctk.CTk):
                 return
 
         # --- Wait briefly and Connect via RPyC ---
+        # (Rest of the start_simulation method remains the same)
         self.update_status("Waiting for nodes to start...")
         self.connections = [None] * self.n_processes
-        time.sleep(2.0 + self.n_processes * 0.3) # Give servers time to start (adjust if needed)
+        # Adjust sleep based on whether consoles are shown (they take longer to init)
+        sleep_time = (2.0 + self.n_processes * 0.5) if show_console_windows else (1.5 + self.n_processes * 0.2)
+        print(f"GUI: Waiting {sleep_time:.1f}s for nodes to initialize...")
+        time.sleep(sleep_time)
 
         connection_successful = True
         for i in range(self.n_processes):
@@ -162,6 +212,8 @@ class VectorClockApp(ctk.CTk):
                 self.update_ui_for_process(i) # Fetch initial state
             self.update_status(f"Simulation running with {self.n_processes} processes. View: P1")
 
+    # ... (Rest of the methods _create_tab_widgets, on_tab_change, update_ui_for_process, etc. remain unchanged) ...
+
     def _create_tab_widgets(self, process_id):
         """Helper to create widgets for a specific tab."""
         process_label = f"P{process_id + 1}"
@@ -206,7 +258,9 @@ class VectorClockApp(ctk.CTk):
         vc_frame.pack(pady=10, padx=10, fill="x")
         lbl_vc = ctk.CTkLabel(vc_frame, text=f"Vector Clock (VC{process_id+1}):")
         lbl_vc.pack()
-        txt_vc = ctk.CTkTextbox(vc_frame, height=max(80, self.n_processes * 20), width=100, state="disabled", wrap="none", activate_scrollbars=False)
+        # Adjusted height calculation for VC Textbox
+        vc_textbox_height = max(60, min(150, self.n_processes * 18 + 10))
+        txt_vc = ctk.CTkTextbox(vc_frame, height=vc_textbox_height, width=100, state="disabled", wrap="none", activate_scrollbars=False)
         txt_vc.pack(pady=5, padx=5, fill="x")
 
         # --- Display Widgets ---
@@ -239,6 +293,7 @@ class VectorClockApp(ctk.CTk):
             # self.update_ui_for_process(self.current_process_index)
         except (IndexError, ValueError, TypeError):
              self.update_status(f"Error identifying tab: {selected_tab_name}")
+
 
     def update_ui_for_process(self, process_id):
         """Fetches state via RPyC and updates the GUI for a specific process."""
@@ -292,7 +347,8 @@ class VectorClockApp(ctk.CTk):
             self.show_error(f"RPyC Error P{process_id+1}", f"Connection lost or timed out.\nP{process_id+1} might have crashed.\nError: {e}")
             self.update_status(f"Error communicating with P{process_id+1}. Refresh may fail.")
             # Mark connection as potentially dead?
-            self.connections[process_id] = None # Or attempt reconnect later
+            if process_id < len(self.connections):
+                self.connections[process_id] = None # Or attempt reconnect later
             # Optionally disable buttons for this tab
         except Exception as e:
             self.show_error(f"RPyC Error P{process_id+1}", f"Failed to get state from P{process_id+1}.\nError: {e}")
@@ -316,7 +372,8 @@ class VectorClockApp(ctk.CTk):
 
         except (EOFError, ConnectionResetError, BrokenPipeError, TimeoutError) as e:
              self.show_error(f"RPyC Error P{process_id+1}", f"Connection lost sending local event.\nError: {e}")
-             self.connections[process_id] = None
+             if process_id < len(self.connections):
+                 self.connections[process_id] = None
         except Exception as e:
             self.show_error(f"RPyC Error P{process_id+1}", f"Error sending local event command.\nError: {e}")
 
@@ -362,7 +419,8 @@ class VectorClockApp(ctk.CTk):
                 self.update_ui_for_process(target_process_id)
                 self.update_status(f"P{sender_process_id+1} sent to P{target_process_id+1}. View: P{self.current_process_index + 1}")
             else:
-                self.show_error("Send Failed", f"P{sender_process_id+1} reported failure sending to P{target_process_id+1}. Check node console.")
+                # The node itself might have failed to connect to the target
+                self.show_error("Send Failed", f"P{sender_process_id+1} reported failure sending to P{target_process_id+1}. Target might be down or unreachable. Check node console (if visible).")
                 self.update_status(f"Send failed: P{sender_process_id+1} -> P{target_process_id+1}. Updating sender UI...")
                 # Still update sender UI as its clock might have changed even on failure
                 self.update_ui_for_process(sender_process_id)
@@ -370,9 +428,11 @@ class VectorClockApp(ctk.CTk):
 
         except (EOFError, ConnectionResetError, BrokenPipeError, TimeoutError) as e:
              self.show_error(f"RPyC Error P{sender_process_id+1}", f"Connection lost during send operation.\nError: {e}")
-             self.connections[sender_process_id] = None
+             if sender_process_id < len(self.connections):
+                 self.connections[sender_process_id] = None
              # We don't know if the receiver got it, might need to refresh receiver too if possible
-             self.update_ui_for_process(target_process_id)
+             if target_process_id < len(self.connections) and self.connections[target_process_id]:
+                 self.update_ui_for_process(target_process_id)
         except Exception as e:
             self.show_error(f"RPyC Error P{sender_process_id+1}", f"Error during send command.\nError: {e}")
             # Refresh sender UI
@@ -387,7 +447,7 @@ class VectorClockApp(ctk.CTk):
             if conn and not conn.closed:
                  try:
                     # Optionally try to tell node to shut down gracefully
-                    # conn.root.shutdown()
+                    # conn.root.shutdown() # Requires implementing shutdown in NodeService
                     conn.close()
                     print(f"GUI: Closed connection to P{i+1}")
                  except Exception as e:
@@ -397,31 +457,54 @@ class VectorClockApp(ctk.CTk):
         # Terminate subprocesses
         for i, proc in enumerate(self.processes):
              if proc and proc.poll() is None: # Check if process is still running
+                 print(f"GUI: Terminating process P{i+1} (PID: {proc.pid})...")
                  try:
-                    proc.terminate() # Send SIGTERM
-                    proc.wait(timeout=1.0) # Wait briefly for termination
-                    print(f"GUI: Terminated process P{i+1} (PID: {proc.pid})")
+                    proc.terminate() # Send SIGTERM (more graceful)
+                    proc.wait(timeout=1.5) # Wait a bit longer
+                    print(f"GUI: Terminated process P{i+1} successfully.")
                  except subprocess.TimeoutExpired:
                     print(f"GUI: Process P{i+1} (PID: {proc.pid}) did not terminate quickly, killing.")
-                    proc.kill() # Force kill if terminate fails
+                    proc.kill() # Force kill (SIGKILL)
+                    try:
+                        proc.wait(timeout=0.5) # Short wait after kill
+                    except subprocess.TimeoutExpired:
+                         print(f"GUI: Warning - Process P{i+1} (PID: {proc.pid}) did not die immediately after kill.")
                  except Exception as e:
-                     print(f"GUI: Error terminating process P{i+1}: {e}")
+                     print(f"GUI: Error terminating/killing process P{i+1} (PID: {proc.pid}): {e}")
         self.processes = []
         print("GUI: Cleanup finished.")
 
 
     def shutdown_app(self):
         """Cleanup and exit the application."""
+        self.update_status("Shutting down...")
         self.cleanup_processes()
         self.destroy() # Close the GUI window
 
 
 # --- Run the Application ---
 if __name__ == "__main__":
-    # Ensure the logic file exists
-    logic_file = os.path.join(os.path.dirname(__file__), "process_logic.py")
+    # Ensure the dependent scripts exist
+    script_dir = os.path.dirname(__file__)
+    node_script = os.path.join(script_dir, "node.py")
+    logic_file = os.path.join(script_dir, "process_logic.py")
+
+    missing_files = []
+    if not os.path.exists(node_script):
+        missing_files.append("node.py")
     if not os.path.exists(logic_file):
-         print(f"ERROR: Cannot find required file '{logic_file}'. Make sure it's in the same directory.")
+         missing_files.append("process_logic.py")
+
+    if missing_files:
+         print(f"ERROR: Cannot find required file(s): {', '.join(missing_files)}. Make sure they are in the same directory as the GUI script.")
+         # Show a graphical error if possible before exiting
+         try:
+             root = tk.Tk()
+             root.withdraw() # Hide the main Tk window
+             messagebox.showerror("Missing Files", f"Cannot find required file(s):\n {', '.join(missing_files)}\n\nPlease ensure they are in the same directory as this script.")
+             root.destroy()
+         except tk.TclError:
+             pass # If Tkinter isn't fully initialized or fails
          sys.exit(1)
 
     app = VectorClockApp()

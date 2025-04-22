@@ -61,6 +61,10 @@ class ProcessLogic:
 
     def receive_message(self, sender_id, message, sender_vc):
         """Handles receiving a message: updates VC based on sender's VC."""
+
+        # delaying for 0.4 seconds
+        time.sleep(0.4)
+
         print(f"[Node {self.id+1}] Received: '{message}' from P{sender_id+1} with VTS {sender_vc}")
         if not isinstance(sender_vc, list) or len(sender_vc) != self.n:
              print(f"[Node {self.id+1}] Error: Received invalid timestamp from P{sender_id+1}. VC: {sender_vc}")
